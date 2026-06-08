@@ -22,7 +22,8 @@ def set_commands():
     commands = [
         telebot.types.BotCommand("check", "📊 Курсы валют и криптовалют"),
         telebot.types.BotCommand("analyz", "🔮 Прогноз на 12 часов"),
-        telebot.types.BotCommand("hourly", "💰 Ежечасная сводка")
+        telebot.types.BotCommand("hourly", "💰 Ежечасная сводка"),
+        telebot.types.BotCommand("info", "ℹ️ Информация о боте")
     ]
     bot.set_my_commands(commands)
     print("✅ Меню команд установлено")
@@ -238,6 +239,54 @@ def hourly_cmd(message):
     msg = get_hourly_crypto()
     bot.reply_to(message, msg)
 
+@bot.message_handler(commands=['info'])
+def info_cmd(message):
+    info_text = """
+🤖 *О боте CryptoWeatherBot*
+
+Бот предоставляет актуальную информацию о курсах валют и криптовалют, а также прогнозы и автоматические уведомления.
+
+---
+
+📌 *Доступные команды:*
+
+• `/check` - Курсы валют (НБРБ) и текущие цены криптовалют
+• `/analyz` - Прогноз на 12 часов на основе технического анализа
+• `/hourly` - Ежечасная сводка криптовалют
+• `/info` - Это меню с информацией о боте
+
+---
+
+⏰ *Автоматические уведомления:*
+
+• *00:00 и 12:00* - Полная сводка:
+  - Курсы валют
+  - Цены криптовалют
+  - Прогноз на 12 часов
+
+• *Каждый час (01:00, 02:00...)* - Сводка криптовалют:
+  - Текущие цены BTC, ETH, TON, SOL
+  - Изменение за 24 часа
+
+• *Резкие изменения цен* - Мгновенное оповещение:
+  - При изменении цены более 3% за 2 минуты
+  - Указывается направление (рост/падение) и величина изменения
+
+---
+
+📊 *Источники данных:*
+• Курсы валют: Национальный банк Республики Беларусь (НБРБ)
+• Криптовалюты: MEXC API (BTC, ETH, TON, SOL)
+
+---
+
+⚠️ *Важно:*
+Прогноз основан на техническом анализе и не является инвестиционной рекомендацией. Все решения вы принимаете самостоятельно.
+
+📅 *Бот работает 24/7*
+    """
+    bot.reply_to(message, info_text, parse_mode='Markdown')
+
 # Устанавливаем меню команд
 set_commands()
 
@@ -245,9 +294,9 @@ set_commands()
 threading.Thread(target=send_notifications, daemon=True).start()
 
 print("✅ Бот запущен!")
-print("📍 Меню команд: /check, /analyz, /hourly")
+print("📍 Команды: /check, /analyz, /hourly, /info")
 print("📨 Уведомления:")
 print("   - 00:00 и 12:00 → полная сводка")
 print("   - Каждый час → криптовалюты")
 print("   - При резком скачке (>3%) → оповещение")
-bot.infinity_polling()
+bot.infinity_polling()g()
