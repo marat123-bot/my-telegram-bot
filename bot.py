@@ -6,32 +6,97 @@ TOKEN = '8806120226:AAHePHRmhf_-k6UVkd3TocXrOeyyvaUCX1U'
 
 bot = telebot.TeleBot(TOKEN)
 
-def get_crypto():
+def get_crypto_price(symbol):
+    """Получает цену криптовалюты с Bybit"""
     try:
-        symbols = {
-            'BTCUSDT': 'Bitcoin',
-            'ETHUSDT': 'Ethereum', 
-            'TONUSDT': 'Toncoin',
-            'SOLUSDT': 'Solana'
-        }
-        result = "🪙 Криптовалюты (к USD):\n"
-        
-        for symbol, name in symbols.items():
-            url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
-            response = requests.get(url, timeout=10)
+        url = f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={symbol}"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        if data['retCode'] == 0:
+            return float(data['result']['list'][0]['lastPrice'])
+    except:
+        pass
+    return None
+
+def get_crypto_24h(symbol):
+    """Получает мин/макс за 24ч с Bybit"""
+    try:
+        url = f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={symbol}"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        if data['retCode'] == 0:
+            ticker = data['result']['list'][0]
+            return {
+                'high': float(ticker['highPrice24h']),
+                'low': float(ticker['lowPrice24h']),
+                'last': float(ticker['lastPrice'])
+            }
+    except:
+        pass
+    return None
+
+def get_forecast(current, high, low):
+    """Простой прогноз на основе позиции цены в диапазоне"""
+    if high == low:
+        return "Неопределённость"
+    position = (current - low) / (high - low)
+    if position > 0.7:
+        return "Вероятен рост 📈"
+    elif position < 0.3:
+        return "Вероятно снижение 📉"
+    else:
+        return "Боковое движение ↔️"
+
+def get_crypto():
+    """Получает данные по всем криптовалютам"""
+    symbols = {
+        'BTCUSDT': 'Bitcoin',
+        'ETHUSDT': 'Ethereum',
+        'TONUSDT': 'Toncoin',
+        'SOLUSDT': 'Solana'
+    }
+    
+    result = "🪙 Криптовалюты (к USD):\n"
+    for symbol, name in symbols.items():
+        price = get_crypto_price(symbol)
+        if price:
+            result += f"{name}: ${price:,.2f}\n"
+        else:
+            result += f"{name}: ошибка\n"
+    return result
+
+def get_forecast_text():
+    """Получает полный прогноз на 12 часов"""
+    symbols = {
+        'BTCUSDT': 'Bitcoin',
+        'ETHUSDT': 'Ethereum',
+        'TONUSDT': 'Toncoin',
+        'SOLUSDT': 'Solana'
+    }
+    
+    result = "🔮 ПРОГНОЗ НА 12 ЧАСОВ\n\n"
+    
+    for symbol, name in symbols.items():
+        data = get_crypto_24h(symbol)
+        if data:
+            current = data['last']
+            high = data['high']
+            low = data['low']
+            forecast = get_forecast(current, high, low)
             
-            if response.status_code == 200:
-                data = response.json()
-                price = float(data['price'])
-                result += f"{name}: ${price:,.2f}\n"
-            else:
-                result += f"{name}: ошибка API\n"
-                
-        return result
-    except Exception as e:
-        return f"Криптовалюты: ошибка"
+            result += f"{name}\n"
+            result += f"Текущая: ${current:,.2f}\n"
+            result += f"Мин (24ч): ${low:,.2f}\n"
+            result += f"Макс (24ч): ${high:,.2f}\n"
+            result += f"Прогноз: {forecast}\n\n"
+        else:
+            result += f"{name}: ошибка получения данных\n\n"
+    
+    result += "⚠️ Прогноз основан на техническом анализе и не является гарантией."
+    return result
 
 def get_currency():
+    """Курсы валют НБРБ"""
     try:
         url_usd = "https://api.nbrb.by/exrates/rates/USD?parammode=2"
         data_usd = requests.get(url_usd, timeout=15).json()
@@ -49,8 +114,8 @@ def get_currency():
                 f"USD: {usd:.2f} Br\n"
                 f"EUR: {eur:.2f} Br\n"
                 f"100 RUB: {rub_100:.4f} Br")
-    except Exception as e:
-        return f"Курсы валют: ошибка"
+    except:
+        return "Курсы валют: ошибка"
 
 @bot.message_handler(commands=['start', 'check'])
 def check_cmd(message):
@@ -60,15 +125,15 @@ def check_cmd(message):
 
 @bot.message_handler(commands=['analyz'])
 def analyz_cmd(message):
-    msg = (
-        "📊 **Анализ рынка**\n\n"
-        "🔹 Рынок криптовалют: волатильность высокая\n"
-        "🔹 Курсы валют: стабильны\n"
-        "🔹 Рекомендация: следите за новостями\n\n"
-        "💡 *Не инвестиционный совет*"
-    )
-    bot.reply_to(message, msg, parse_mode='Markdown')
+    now = datetime.now().strftime('%d.%m.%Y %H:%M')
+    msg = f"🕐 {now}\n\n{get_currency()}\n\n{get_crypto()}\n\n{get_forecast_text()}"
+    bot.reply_to(message, msg)
 
-print("✅ Бот запущен и работает!")
-print("📍 Доступные команды: /check , /analyz")
+@bot.message_handler(commands=['forecast'])
+def forecast_cmd(message):
+    msg = get_forecast_text()
+    bot.reply_to(message, msg)
+
+print("✅ Бот запущен!")
+print("📍 Команды: /check - курсы и цены, /analyz - полный анализ, /forecast - только прогноз")
 bot.infinity_polling()
