@@ -9,13 +9,23 @@ CHAT_ID = 1982505441
 
 bot = telebot.TeleBot(TOKEN)
 
-# Храним последние цены для отслеживания
+# Храним последние цены
 last_prices = {
     'Bitcoin': None,
     'Ethereum': None,
     'Toncoin': None,
     'Solana': None
 }
+
+def set_commands():
+    """Устанавливает меню команд в Telegram"""
+    commands = [
+        telebot.types.BotCommand("check", "📊 Курсы валют и криптовалют"),
+        telebot.types.BotCommand("analyz", "🔮 Прогноз на 12 часов"),
+        telebot.types.BotCommand("hourly", "💰 Ежечасная сводка")
+    ]
+    bot.set_my_commands(commands)
+    print("✅ Меню команд установлено")
 
 def get_mexc_data(symbol):
     try:
@@ -68,18 +78,41 @@ def get_forecast(current, high, low):
     except:
         return "Неопределённость"
 
-def get_full_report():
+def get_analyz_report():
+    now = datetime.now().strftime('%d.%m.%Y %H:%M')
+    symbols = {'BTCUSDT': 'Bitcoin', 'ETHUSDT': 'Ethereum', 'TONUSDT': 'Toncoin', 'SOLUSDT': 'Solana'}
+    
+    result = f"🔮 ПРОГНОЗ НА 12 ЧАСОВ\n🕐 {now}\n\n"
+    
+    for symbol, name in symbols.items():
+        data = get_mexc_data(symbol)
+        if data:
+            forecast = get_forecast(data['price'], data['high'], data['low'])
+            result += f"{name}\n"
+            result += f"Текущая: ${data['price']:,.2f}\n"
+            result += f"Мин (24ч): ${data['low']:,.2f}\n"
+            result += f"Макс (24ч): ${data['high']:,.2f}\n"
+            result += f"Изменение 24ч: {data['change']:+.2f}%\n"
+            result += f"Прогноз: {forecast}\n\n"
+        else:
+            result += f"{name}: ошибка получения данных\n\n"
+    
+    result += "⚠️ Прогноз основан на техническом анализе и не является гарантией."
+    return result
+
+def get_full_daily_report():
     now = datetime.now().strftime('%d.%m.%Y %H:%M')
     symbols = {'BTCUSDT': 'Bitcoin', 'ETHUSDT': 'Ethereum', 'TONUSDT': 'Toncoin', 'SOLUSDT': 'Solana'}
     
     result = f"📊 ЕЖЕДНЕВНАЯ СВОДКА\n🕐 {now}\n\n"
     result += get_currency()
-    result += "\n\n🪙 Криптовалюты:\n"
+    result += "\n\n🪙 Криптовалюты (к USD):\n"
     
     for symbol, name in symbols.items():
         data = get_mexc_data(symbol)
         if data:
-            result += f"\n{name}: ${data['price']:,.2f}\n24h изменение: {data['change']:+.2f}%\n"
+            result += f"\n{name}: ${data['price']:,.2f}\n"
+            result += f"24h изменение: {data['change']:+.2f}%\n"
         else:
             result += f"\n{name}: ошибка\n"
     
@@ -107,13 +140,13 @@ def get_hourly_crypto():
     for symbol, name in symbols.items():
         data = get_mexc_data(symbol)
         if data:
-            result += f"{name}: ${data['price']:,.2f}\n24h изменение: {data['change']:+.2f}%\n\n"
+            result += f"{name}: ${data['price']:,.2f}\n"
+            result += f"24h изменение: {data['change']:+.2f}%\n\n"
         else:
             result += f"{name}: ошибка\n\n"
     return result
 
 def check_price_alerts():
-    """Проверяет резкие изменения и отправляет только при скачке"""
     global last_prices
     alerts = []
     symbols = {'BTCUSDT': 'Bitcoin', 'ETHUSDT': 'Ethereum', 'TONUSDT': 'Toncoin', 'SOLUSDT': 'Solana'}
@@ -127,7 +160,6 @@ def check_price_alerts():
             if last_price is not None:
                 change_percent = ((current_price - last_price) / last_price) * 100
                 
-                # Оповещение только при изменении более 3%
                 if abs(change_percent) >= 3:
                     direction = "РЕЗКИЙ РОСТ 🚀" if change_percent > 0 else "РЕЗКОЕ ПАДЕНИЕ 📉"
                     alerts.append(f"{direction} {name}\n"
@@ -136,26 +168,22 @@ def check_price_alerts():
                                   f"Цена стала: ${current_price:,.2f}\n"
                                   f"🕐 {datetime.now().strftime('%H:%M:%S')}")
             
-            # Обновляем цену
             last_prices[name] = current_price
     
     return alerts
 
 def send_notifications():
-    """Фоновая задача для отправки уведомлений"""
     last_daily = None
     last_hourly = None
     last_alert_check = None
     
     while True:
         now = datetime.now()
-        current_hour = now.hour
         current_time_str = now.strftime('%H:%M')
         
-        # 1. Ежедневные сводки в 00:00 и 12:00
         if current_time_str in ['00:00', '12:00']:
             if last_daily != current_time_str:
-                report = get_full_report()
+                report = get_full_daily_report()
                 try:
                     bot.send_message(CHAT_ID, report)
                     last_daily = current_time_str
@@ -163,7 +191,6 @@ def send_notifications():
                 except Exception as e:
                     print(f"Ошибка: {e}")
         
-        # 2. Ежечасные сводки
         if current_time_str.endswith(':00'):
             if last_hourly != current_time_str:
                 hourly = get_hourly_crypto()
@@ -174,7 +201,6 @@ def send_notifications():
                 except Exception as e:
                     print(f"Ошибка: {e}")
         
-        # 3. Проверка резких изменений (каждые 2 минуты, но оповещает ТОЛЬКО при скачке)
         if last_alert_check is None or (datetime.now() - last_alert_check).seconds >= 120:
             alerts = check_price_alerts()
             for alert in alerts:
@@ -182,7 +208,7 @@ def send_notifications():
                     bot.send_message(CHAT_ID, alert)
                     print(f"⚠️ Резкое изменение: {alert[:50]}...")
                 except Exception as e:
-                    print(f"Ошибка отправки: {e}")
+                    print(f"Ошибка: {e}")
             last_alert_check = datetime.now()
         
         time.sleep(30)
@@ -204,7 +230,7 @@ def check_cmd(message):
 
 @bot.message_handler(commands=['analyz'])
 def analyz_cmd(message):
-    msg = get_full_report()
+    msg = get_analyz_report()
     bot.reply_to(message, msg)
 
 @bot.message_handler(commands=['hourly'])
@@ -212,12 +238,16 @@ def hourly_cmd(message):
     msg = get_hourly_crypto()
     bot.reply_to(message, msg)
 
+# Устанавливаем меню команд
+set_commands()
+
+# Запускаем фоновые уведомления
 threading.Thread(target=send_notifications, daemon=True).start()
 
 print("✅ Бот запущен!")
-print("📍 /check /analyz /hourly")
+print("📍 Меню команд: /check, /analyz, /hourly")
 print("📨 Уведомления:")
 print("   - 00:00 и 12:00 → полная сводка")
 print("   - Каждый час → криптовалюты")
-print("   - Только при резком скачке цены (>3%) → оповещение")
+print("   - При резком скачке (>3%) → оповещение")
 bot.infinity_polling()
