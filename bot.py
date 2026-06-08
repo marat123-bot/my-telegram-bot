@@ -6,23 +6,21 @@ TOKEN = '8806120226:AAHePHRmhf_-k6UVkd3TocXrOeyyvaUCX1U'
 
 bot = telebot.TeleBot(TOKEN)
 
-def get_bingx_data(symbol):
-    """Получает данные с BingX API"""
+def get_mexc_data(symbol):
+    """Получает данные с MEXC API"""
     try:
-        # BingX публичный API
-        url = f"https://api.bingx.com/api/v1/market/ticker?symbol={symbol}"
+        # MEXC публичный API
+        url = f"https://api.mexc.com/api/v3/ticker/24hr?symbol={symbol}"
         resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
         
         if resp.status_code == 200:
             data = resp.json()
-            if data.get('code') == 0:
-                ticker = data['data']
-                return {
-                    'price': float(ticker['lastPrice']),
-                    'high': float(ticker['highPrice']),
-                    'low': float(ticker['lowPrice']),
-                    'change': float(ticker['priceChangePercent'])
-                }
+            return {
+                'price': float(data['lastPrice']),
+                'high': float(data['highPrice']),
+                'low': float(data['lowPrice']),
+                'change': float(data['priceChangePercent'])
+            }
     except:
         pass
     return None
@@ -67,15 +65,15 @@ def get_currency():
 def get_crypto_prices():
     """Получает текущие цены криптовалют"""
     symbols = {
-        'BTC-USDT': 'Bitcoin',
-        'ETH-USDT': 'Ethereum',
-        'TON-USDT': 'Toncoin',
-        'SOL-USDT': 'Solana'
+        'BTCUSDT': 'Bitcoin',
+        'ETHUSDT': 'Ethereum',
+        'TONUSDT': 'Toncoin',
+        'SOLUSDT': 'Solana'
     }
     
     result = {}
     for symbol, name in symbols.items():
-        data = get_bingx_data(symbol)
+        data = get_mexc_data(symbol)
         if data:
             result[name] = data['price']
         else:
@@ -106,16 +104,16 @@ def analyz_cmd(message):
     now = datetime.now().strftime('%d.%m.%Y %H:%M')
     
     symbols = {
-        'BTC-USDT': 'Bitcoin',
-        'ETH-USDT': 'Ethereum',
-        'TON-USDT': 'Toncoin',
-        'SOL-USDT': 'Solana'
+        'BTCUSDT': 'Bitcoin',
+        'ETHUSDT': 'Ethereum',
+        'TONUSDT': 'Toncoin',
+        'SOLUSDT': 'Solana'
     }
     
     msg = f"🔮 ПРОГНОЗ НА 12 ЧАСОВ\n🕐 {now}\n\n"
     
     for symbol, name in symbols.items():
-        data = get_bingx_data(symbol)
+        data = get_mexc_data(symbol)
         if data:
             forecast = get_forecast(data['price'], data['high'], data['low'])
             msg += f"{name}\n"
@@ -130,7 +128,7 @@ def analyz_cmd(message):
     msg += "⚠️ Прогноз основан на техническом анализе и не является гарантией."
     bot.reply_to(message, msg)
 
-print("✅ Бот запущен на BingX API!")
+print("✅ Бот запущен на MEXC API!")
 print("📍 /check - курсы валют и криптовалют")
 print("📍 /analyz - прогноз на 12 часов")
 bot.infinity_polling()
