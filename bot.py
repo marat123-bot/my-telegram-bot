@@ -6,22 +6,42 @@ TOKEN = '8806120226:AAHePHRmhf_-k6UVkd3TocXrOeyyvaUCX1U'
 
 bot = telebot.TeleBot(TOKEN)
 
-# Получаем данные криптовалют с Binance (через прокси-зеркало)
 def get_binance_data(symbol):
+    """Получает данные с Binance через публичное зеркало"""
     try:
-        # 24h статистика с Binance
-        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        return {
-            'price': float(data['lastPrice']),
-            'high': float(data['highPrice']),
-            'low': float(data['lowPrice'])
-        }
+        # Используем зеркало Binance (обходит блокировки)
+        url = f"https://api1.binance.com/api/v3/ticker/24hr?symbol={symbol}"
+        resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                'price': float(data['lastPrice']),
+                'high': float(data['highPrice']),
+                'low': float(data['lowPrice'])
+            }
     except:
-        return None
+        pass
+    
+    # Запасной вариант через другую зеркало
+    try:
+        url = f"https://api3.binance.com/api/v3/ticker/24hr?symbol={symbol}"
+        resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                'price': float(data['lastPrice']),
+                'high': float(data['highPrice']),
+                'low': float(data['lowPrice'])
+            }
+    except:
+        pass
+    
+    return None
 
 def get_forecast(current, high, low):
+    """Рассчитывает прогноз на основе позиции цены"""
     if high == low:
         return "Неопределённость"
     try:
@@ -67,5 +87,5 @@ def analyz_cmd(message):
 def check_cmd(message):
     bot.reply_to(message, "Привет! Используй команду /analyz для прогноза криптовалют.")
 
-print("✅ Бот работает! Используй /analyz")
+print("✅ Бот запущен! Используй /analyz")
 bot.infinity_polling()
