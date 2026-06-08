@@ -6,82 +6,84 @@ TOKEN = '8806120226:AAHePHRmhf_-k6UVkd3TocXrOeyyvaUCX1U'
 
 bot = telebot.TeleBot(TOKEN)
 
-def get_crypto_price(symbol):
-    """Получает цену криптовалюты с Bybit"""
+def get_crypto_data():
+    """Получает данные криптовалют с CoinGecko"""
     try:
-        url = f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={symbol}"
-        response = requests.get(url, timeout=10)
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,the-open-network,solana&vs_currencies=usd&include_24hr_change=true&include_24hr_high=true&include_24hr_low=true"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=15)
         data = response.json()
-        if data['retCode'] == 0:
-            return float(data['result']['list'][0]['lastPrice'])
-    except:
-        pass
-    return None
-
-def get_crypto_24h(symbol):
-    """Получает мин/макс за 24ч с Bybit"""
-    try:
-        url = f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={symbol}"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if data['retCode'] == 0:
-            ticker = data['result']['list'][0]
-            return {
-                'high': float(ticker['highPrice24h']),
-                'low': float(ticker['lowPrice24h']),
-                'last': float(ticker['lastPrice'])
-            }
-    except:
-        pass
-    return None
+        
+        # Маппинг ID на названия
+        mapping = {
+            'bitcoin': 'Bitcoin',
+            'ethereum': 'Ethereum',
+            'the-open-network': 'Toncoin',
+            'solana': 'Solana'
+        }
+        
+        result = {}
+        for coin_id, name in mapping.items():
+            if coin_id in data:
+                result[name] = {
+                    'price': data[coin_id]['usd'],
+                    'high': data[coin_id].get('usd_24h_high', data[coin_id]['usd']),
+                    'low': data[coin_id].get('usd_24h_low', data[coin_id]['usd']),
+                    'change': data[coin_id].get('usd_24h_change', 0)
+                }
+            else:
+                result[name] = None
+        return result
+    except Exception as e:
+        print(f"Ошибка CoinGecko: {e}")
+        return None
 
 def get_forecast(current, high, low):
-    """Простой прогноз на основе позиции цены в диапазоне"""
+    """Простой прогноз"""
     if high == low:
         return "Неопределённость"
-    position = (current - low) / (high - low)
-    if position > 0.7:
-        return "Вероятен рост 📈"
-    elif position < 0.3:
-        return "Вероятно снижение 📉"
-    else:
-        return "Боковое движение ↔️"
+    try:
+        position = (current - low) / (high - low)
+        if position > 0.7:
+            return "Вероятен рост 📈"
+        elif position < 0.3:
+            return "Вероятно снижение 📉"
+        else:
+            return "Боковое движение ↔️"
+    except:
+        return "Неопределённость"
 
 def get_crypto():
-    """Получает данные по всем криптовалютам"""
-    symbols = {
-        'BTCUSDT': 'Bitcoin',
-        'ETHUSDT': 'Ethereum',
-        'TONUSDT': 'Toncoin',
-        'SOLUSDT': 'Solana'
-    }
+    """Краткая информация по криптовалютам"""
+    data = get_crypto_data()
+    if not data:
+        return "🪙 Криптовалюты: временно недоступны\n"
     
     result = "🪙 Криптовалюты (к USD):\n"
-    for symbol, name in symbols.items():
-        price = get_crypto_price(symbol)
-        if price:
-            result += f"{name}: ${price:,.2f}\n"
+    for name, info in data.items():
+        if info:
+            result += f"{name}: ${info['price']:,.2f}\n"
         else:
             result += f"{name}: ошибка\n"
     return result
 
-def get_forecast_text():
-    """Получает полный прогноз на 12 часов"""
-    symbols = {
-        'BTCUSDT': 'Bitcoin',
-        'ETHUSDT': 'Ethereum',
-        'TONUSDT': 'Toncoin',
-        'SOLUSDT': 'Solana'
-    }
+def get_full_forecast():
+    """Полный прогноз"""
+    data = get_crypto_data()
+    if not data:
+        return "🔮 Прогноз временно недоступен\n"
     
     result = "🔮 ПРОГНОЗ НА 12 ЧАСОВ\n\n"
     
-    for symbol, name in symbols.items():
-        data = get_crypto_24h(symbol)
-        if data:
-            current = data['last']
-            high = data['high']
-            low = data['low']
+    for name, info in data.items():
+        if info:
+            current = info['price']
+            high = info['high']
+            low = info['low']
             forecast = get_forecast(current, high, low)
             
             result += f"{name}\n"
@@ -114,8 +116,8 @@ def get_currency():
                 f"USD: {usd:.2f} Br\n"
                 f"EUR: {eur:.2f} Br\n"
                 f"100 RUB: {rub_100:.4f} Br")
-    except:
-        return "Курсы валют: ошибка"
+    except Exception as e:
+        return f"Курсы валют: ошибка"
 
 @bot.message_handler(commands=['start', 'check'])
 def check_cmd(message):
@@ -126,14 +128,14 @@ def check_cmd(message):
 @bot.message_handler(commands=['analyz'])
 def analyz_cmd(message):
     now = datetime.now().strftime('%d.%m.%Y %H:%M')
-    msg = f"🕐 {now}\n\n{get_currency()}\n\n{get_crypto()}\n\n{get_forecast_text()}"
+    msg = f"🕐 {now}\n\n{get_currency()}\n\n{get_crypto()}\n\n{get_full_forecast()}"
     bot.reply_to(message, msg)
 
 @bot.message_handler(commands=['forecast'])
 def forecast_cmd(message):
-    msg = get_forecast_text()
+    msg = get_full_forecast()
     bot.reply_to(message, msg)
 
-print("✅ Бот запущен!")
-print("📍 Команды: /check - курсы и цены, /analyz - полный анализ, /forecast - только прогноз")
+print("✅ Бот запущен на CoinGecko API!")
+print("📍 Команды: /check, /analyz, /forecast")
 bot.infinity_polling()
