@@ -6,63 +6,29 @@ TOKEN = '8806120226:AAHePHRmhf_-k6UVkd3TocXrOeyyvaUCX1U'
 
 bot = telebot.TeleBot(TOKEN)
 
-# Прокси-сервер для обхода блокировок
-PROXY = {
-    'http': 'http://proxy.packetstream.io:31111',
-    'https': 'http://proxy.packetstream.io:31111'
-}
-
-def get_crypto_data(symbol):
-    """Получает данные криптовалют через прокси"""
+def get_bingx_data(symbol):
+    """Получает данные с BingX API"""
     try:
-        # Используем публичное API Binance без прокси (пробуем сначала)
-        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
-        resp = requests.get(url, timeout=10)
+        # BingX публичный API
+        url = f"https://api.bingx.com/api/v1/market/ticker?symbol={symbol}"
+        resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
         
         if resp.status_code == 200:
             data = resp.json()
-            return {
-                'price': float(data['lastPrice']),
-                'high': float(data['highPrice']),
-                'low': float(data['lowPrice'])
-            }
+            if data.get('code') == 0:
+                ticker = data['data']
+                return {
+                    'price': float(ticker['lastPrice']),
+                    'high': float(ticker['highPrice']),
+                    'low': float(ticker['lowPrice']),
+                    'change': float(ticker['priceChangePercent'])
+                }
     except:
         pass
-    
-    # Если не работает - пробуем с прокси
-    try:
-        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
-        resp = requests.get(url, proxies=PROXY, timeout=15)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            return {
-                'price': float(data['lastPrice']),
-                'high': float(data['highPrice']),
-                'low': float(data['lowPrice'])
-            }
-    except:
-        pass
-    
-    # Последняя попытка - через зеркало
-    try:
-        url = f"https://api1.binance.com/api/v3/ticker/24hr?symbol={symbol}"
-        resp = requests.get(url, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            return {
-                'price': float(data['lastPrice']),
-                'high': float(data['highPrice']),
-                'low': float(data['lowPrice'])
-            }
-    except:
-        pass
-    
     return None
 
 def get_forecast(current, high, low):
-    """Рассчитывает прогноз"""
+    """Рассчитывает прогноз на основе позиции цены"""
     if high == low:
         return "Неопределённость"
     try:
@@ -101,15 +67,15 @@ def get_currency():
 def get_crypto_prices():
     """Получает текущие цены криптовалют"""
     symbols = {
-        'BTCUSDT': 'Bitcoin',
-        'ETHUSDT': 'Ethereum',
-        'TONUSDT': 'Toncoin',
-        'SOLUSDT': 'Solana'
+        'BTC-USDT': 'Bitcoin',
+        'ETH-USDT': 'Ethereum',
+        'TON-USDT': 'Toncoin',
+        'SOL-USDT': 'Solana'
     }
     
     result = {}
     for symbol, name in symbols.items():
-        data = get_crypto_data(symbol)
+        data = get_bingx_data(symbol)
         if data:
             result[name] = data['price']
         else:
@@ -140,22 +106,23 @@ def analyz_cmd(message):
     now = datetime.now().strftime('%d.%m.%Y %H:%M')
     
     symbols = {
-        'BTCUSDT': 'Bitcoin',
-        'ETHUSDT': 'Ethereum',
-        'TONUSDT': 'Toncoin',
-        'SOLUSDT': 'Solana'
+        'BTC-USDT': 'Bitcoin',
+        'ETH-USDT': 'Ethereum',
+        'TON-USDT': 'Toncoin',
+        'SOL-USDT': 'Solana'
     }
     
     msg = f"🔮 ПРОГНОЗ НА 12 ЧАСОВ\n🕐 {now}\n\n"
     
     for symbol, name in symbols.items():
-        data = get_crypto_data(symbol)
+        data = get_bingx_data(symbol)
         if data:
             forecast = get_forecast(data['price'], data['high'], data['low'])
             msg += f"{name}\n"
             msg += f"Текущая: ${data['price']:,.2f}\n"
             msg += f"Мин (24ч): ${data['low']:,.2f}\n"
             msg += f"Макс (24ч): ${data['high']:,.2f}\n"
+            msg += f"Изменение 24ч: {data['change']:+.2f}%\n"
             msg += f"Прогноз: {forecast}\n\n"
         else:
             msg += f"{name}: ошибка получения данных\n\n"
@@ -163,7 +130,7 @@ def analyz_cmd(message):
     msg += "⚠️ Прогноз основан на техническом анализе и не является гарантией."
     bot.reply_to(message, msg)
 
-print("✅ Бот запущен с поддержкой прокси!")
+print("✅ Бот запущен на BingX API!")
 print("📍 /check - курсы валют и криптовалют")
 print("📍 /analyz - прогноз на 12 часов")
 bot.infinity_polling()
