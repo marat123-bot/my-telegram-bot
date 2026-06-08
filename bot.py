@@ -6,50 +6,75 @@ TOKEN = '8806120226:AAHePHRmhf_-k6UVkd3TocXrOeyyvaUCX1U'
 
 bot = telebot.TeleBot(TOKEN)
 
-def get_crypto_prices():
-    """Получает текущие цены криптовалют с CoinCap"""
-    coins = {
-        'bitcoin': 'Bitcoin',
-        'ethereum': 'Ethereum',
-        'the-open-network': 'Toncoin',
-        'solana': 'Solana'
-    }
-    
-    result = {}
-    for coin_id, name in coins.items():
-        try:
-            url = f"https://api.coincap.io/v2/assets/{coin_id}"
-            resp = requests.get(url, timeout=10)
-            data = resp.json()
-            if 'data' in data:
-                result[name] = float(data['data']['priceUsd'])
-        except:
-            result[name] = None
-    return result
+# Прокси-сервер для обхода блокировок
+PROXY = {
+    'http': 'http://proxy.packetstream.io:31111',
+    'https': 'http://proxy.packetstream.io:31111'
+}
 
-def get_forecast_data():
-    """Получает данные для прогноза"""
-    coins = {
-        'bitcoin': 'Bitcoin',
-        'ethereum': 'Ethereum',
-        'the-open-network': 'Toncoin',
-        'solana': 'Solana'
-    }
-    
-    result = {}
-    for coin_id, name in coins.items():
-        try:
-            url = f"https://api.coincap.io/v2/assets/{coin_id}"
-            resp = requests.get(url, timeout=10)
+def get_crypto_data(symbol):
+    """Получает данные криптовалют через прокси"""
+    try:
+        # Используем публичное API Binance без прокси (пробуем сначала)
+        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
+        resp = requests.get(url, timeout=10)
+        
+        if resp.status_code == 200:
             data = resp.json()
-            if 'data' in data:
-                result[name] = {
-                    'price': float(data['data']['priceUsd']),
-                    'change': float(data['data']['changePercent24Hr'])
-                }
-        except:
-            result[name] = None
-    return result
+            return {
+                'price': float(data['lastPrice']),
+                'high': float(data['highPrice']),
+                'low': float(data['lowPrice'])
+            }
+    except:
+        pass
+    
+    # Если не работает - пробуем с прокси
+    try:
+        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
+        resp = requests.get(url, proxies=PROXY, timeout=15)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                'price': float(data['lastPrice']),
+                'high': float(data['highPrice']),
+                'low': float(data['lowPrice'])
+            }
+    except:
+        pass
+    
+    # Последняя попытка - через зеркало
+    try:
+        url = f"https://api1.binance.com/api/v3/ticker/24hr?symbol={symbol}"
+        resp = requests.get(url, timeout=10)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                'price': float(data['lastPrice']),
+                'high': float(data['highPrice']),
+                'low': float(data['lowPrice'])
+            }
+    except:
+        pass
+    
+    return None
+
+def get_forecast(current, high, low):
+    """Рассчитывает прогноз"""
+    if high == low:
+        return "Неопределённость"
+    try:
+        position = (current - low) / (high - low)
+        if position > 0.7:
+            return "Вероятен рост 📈"
+        elif position < 0.3:
+            return "Вероятно снижение 📉"
+        else:
+            return "Боковое движение ↔️"
+    except:
+        return "Неопределённость"
 
 def get_currency():
     """Курсы валют НБРБ"""
@@ -73,14 +98,32 @@ def get_currency():
     except:
         return "Курсы валют: ошибка"
 
+def get_crypto_prices():
+    """Получает текущие цены криптовалют"""
+    symbols = {
+        'BTCUSDT': 'Bitcoin',
+        'ETHUSDT': 'Ethereum',
+        'TONUSDT': 'Toncoin',
+        'SOLUSDT': 'Solana'
+    }
+    
+    result = {}
+    for symbol, name in symbols.items():
+        data = get_crypto_data(symbol)
+        if data:
+            result[name] = data['price']
+        else:
+            result[name] = None
+    return result
+
 @bot.message_handler(commands=['start', 'check'])
 def check_cmd(message):
     now = datetime.now().strftime('%d.%m.%Y %H:%M')
     
-    # Получаем курсы валют
+    # Курсы валют
     currency_msg = get_currency()
     
-    # Получаем цены криптовалют
+    # Цены криптовалют
     crypto_prices = get_crypto_prices()
     crypto_msg = "🪙 Криптовалюты (к USD):\n"
     for name, price in crypto_prices.items():
@@ -96,26 +139,23 @@ def check_cmd(message):
 def analyz_cmd(message):
     now = datetime.now().strftime('%d.%m.%Y %H:%M')
     
-    forecast_data = get_forecast_data()
+    symbols = {
+        'BTCUSDT': 'Bitcoin',
+        'ETHUSDT': 'Ethereum',
+        'TONUSDT': 'Toncoin',
+        'SOLUSDT': 'Solana'
+    }
     
     msg = f"🔮 ПРОГНОЗ НА 12 ЧАСОВ\n🕐 {now}\n\n"
     
-    for name, data in forecast_data.items():
+    for symbol, name in symbols.items():
+        data = get_crypto_data(symbol)
         if data:
-            change = data['change']
-            price = data['price']
-            
-            # Прогноз на основе изменения за 24 часа
-            if change > 3:
-                forecast = "Вероятен рост 📈"
-            elif change < -3:
-                forecast = "Вероятно снижение 📉"
-            else:
-                forecast = "Боковое движение ↔️"
-            
+            forecast = get_forecast(data['price'], data['high'], data['low'])
             msg += f"{name}\n"
-            msg += f"Текущая: ${price:,.2f}\n"
-            msg += f"24h изменение: {change:+.2f}%\n"
+            msg += f"Текущая: ${data['price']:,.2f}\n"
+            msg += f"Мин (24ч): ${data['low']:,.2f}\n"
+            msg += f"Макс (24ч): ${data['high']:,.2f}\n"
             msg += f"Прогноз: {forecast}\n\n"
         else:
             msg += f"{name}: ошибка получения данных\n\n"
@@ -123,7 +163,7 @@ def analyz_cmd(message):
     msg += "⚠️ Прогноз основан на техническом анализе и не является гарантией."
     bot.reply_to(message, msg)
 
-print("✅ Бот запущен!")
+print("✅ Бот запущен с поддержкой прокси!")
 print("📍 /check - курсы валют и криптовалют")
 print("📍 /analyz - прогноз на 12 часов")
 bot.infinity_polling()
