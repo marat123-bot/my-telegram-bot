@@ -14,6 +14,7 @@ bot = telebot.TeleBot(TOKEN)
 MSK = timezone(timedelta(hours=3))
 
 USER_DATA_FILE = 'user_data.json'
+LAST_RESET_FILE = 'last_reset.json'
 
 # ==================== РАБОТА С ДАННЫМИ ====================
 def load_user_data():
@@ -26,7 +27,18 @@ def save_user_data(data):
     with open(USER_DATA_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
+def load_last_reset():
+    if os.path.exists(LAST_RESET_FILE):
+        with open(LAST_RESET_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_last_reset(data):
+    with open(LAST_RESET_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
 user_data = load_user_data()
+last_reset = load_last_reset()
 active_trades = {}
 temp_data = {}
 
@@ -41,6 +53,34 @@ def update_user_balance(user_id, amount):
         user_data[str(user_id)] = {'balance': 10000, 'positions': [], 'history': []}
     user_data[str(user_id)]['balance'] += amount
     save_user_data(user_data)
+
+def reset_balance(user_id):
+    """Сбрасывает баланс до 10000"""
+    if str(user_id) not in user_data:
+        user_data[str(user_id)] = {'balance': 10000, 'positions': [], 'history': []}
+    else:
+        user_data[str(user_id)]['balance'] = 10000
+        # Закрываем все открытые позиции при сбросе
+        user_data[str(user_id)]['positions'] = []
+    save_user_data(user_data)
+    
+    # Очищаем активные сделки для этого пользователя
+    for chat_id in list(active_trades.keys()):
+        if active_trades[chat_id].get('user_id') == user_id:
+            del active_trades[chat_id]
+
+def can_reset_balance(user_id):
+    """Проверяет, можно ли сбросить баланс (раз в день)"""
+    today = datetime.now(MSK).strftime('%Y-%m-%d')
+    if str(user_id) in last_reset and last_reset[str(user_id)] == today:
+        return False
+    return True
+
+def mark_reset_used(user_id):
+    """Отмечает, что сброс сегодня использован"""
+    today = datetime.now(MSK).strftime('%Y-%m-%d')
+    last_reset[str(user_id)] = today
+    save_last_reset(last_reset)
 
 def get_user_positions(user_id):
     if str(user_id) not in user_data:
@@ -141,6 +181,7 @@ def set_commands():
         telebot.types.BotCommand("start", "🏠 Главное меню"),
         telebot.types.BotCommand("quick", "🚀 Быстрая сделка"),
         telebot.types.BotCommand("balance", "💰 Мой баланс"),
+        telebot.types.BotCommand("backbalance", "🔄 Сбросить баланс до 10000 (раз в день)"),
         telebot.types.BotCommand("history", "📜 История сделок"),
         telebot.types.BotCommand("analyz", "🔮 Прогноз на 12 часов"),
         telebot.types.BotCommand("check", "📊 Курсы валют и крипты")
@@ -169,6 +210,7 @@ def start_cmd(message):
 📚 *Команды:*
 • `/quick` - открыть сделку с кнопками
 • `/balance` - проверить баланс
+• `/backbalance` - сбросить баланс до 10000 (раз в день)
 • `/history` - история сделок
 • `/analyz` - прогноз на 12 часов
 • `/check` - курсы валют и криптовалют
@@ -226,6 +268,23 @@ def balance_cmd(message):
     
     bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode='Markdown')
 
+@bot.message_handler(commands=['backbalance'])
+def backbalance_cmd(message):
+    user_id = message.from_user.id
+    
+    if not can_reset_balance(user_id):
+        bot.reply_to(message, "❌ *Сбросить баланс можно только раз в день!*\nПопробуйте завтра.", parse_mode='Markdown')
+        return
+    
+    reset_balance(user_id)
+    mark_reset_used(user_id)
+    
+    msg = f"✅ *Баланс успешно сброшен до $10,000!*\n\n"
+    msg += f"💰 Текущий баланс: *${get_user_balance(user_id):,.2f}*\n"
+    msg += f"📅 Следующий сброс доступен завтра."
+    
+    bot.reply_to(message, msg, parse_mode='Markdown')
+
 @bot.message_handler(commands=['history'])
 def history_cmd(message):
     user_id = message.from_user.id
@@ -241,7 +300,7 @@ def history_cmd(message):
     msg = "📜 *ИСТОРИЯ СДЕЛОК (последние 10)*\n\n"
     for trade in history[-10:]:
         emoji = "✅" if trade['pnl'] > 0 else "❌"
-        msg += f"{emoji} *{trade['symbol']}* | {trade.get('leverage', 1)}x | ${trade['amount']:,.2f}\n"
+        msg += f"{emoji} *{trade['symbol']}* | {trade.get('leverage', 1)}x | {trade['side'].upper()} | ${trade['amount']:,.2f}\n"
         msg += f"   PnL: {trade['pnl']:+.2f} USDT\n"
         if 'balance_before' in trade:
             msg += f"   Баланс: ${trade['balance_before']:,.2f} → ${trade['balance_after']:,.2f}\n"
@@ -295,29 +354,46 @@ def check_cmd(message):
 
 # ==================== КОЛБЭКИ ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('coin_'))
-def select_leverage(call):
+def select_side(call):
     coin = call.data.split('_')[1]
+    bot.answer_callback_query(call.id)
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    
+    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        telebot.types.InlineKeyboardButton("📈 LONG (на рост)", callback_data=f"side_{coin}_long"),
+        telebot.types.InlineKeyboardButton("📉 SHORT (на падение)", callback_data=f"side_{coin}_short")
+    ]
+    markup.add(*buttons)
+    
+    msg = bot.send_message(call.message.chat.id, f"📊 *{coin}*\n\nВыберите направление:", reply_markup=markup, parse_mode='Markdown')
+    temp_data[str(call.message.chat.id)] = {'coin': coin, 'msg_id': msg.message_id}
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('side_'))
+def select_leverage(call):
+    _, coin, side = call.data.split('_')
     bot.answer_callback_query(call.id)
     bot.delete_message(call.message.chat.id, call.message.message_id)
     
     markup = telebot.types.InlineKeyboardMarkup(row_width=3)
     leverages = [1, 10, 25, 50, 75, 100, 250]
-    buttons = [telebot.types.InlineKeyboardButton(f"{lev}x", callback_data=f"lev_{coin}_{lev}") for lev in leverages]
+    buttons = [telebot.types.InlineKeyboardButton(f"{lev}x", callback_data=f"lev_{coin}_{side}_{lev}") for lev in leverages]
     markup.add(*buttons)
     
-    msg = bot.send_message(call.message.chat.id, f"📊 *{coin}*\n\nВыберите плечо:", reply_markup=markup, parse_mode='Markdown')
-    temp_data[str(call.message.chat.id)] = {'coin': coin, 'msg_id': msg.message_id}
+    msg = bot.send_message(call.message.chat.id, f"📊 *{coin} - {side.upper()}*\n\nВыберите плечо:", reply_markup=markup, parse_mode='Markdown')
+    temp_data[str(call.message.chat.id)] = {'coin': coin, 'side': side, 'msg_id': msg.message_id}
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('lev_'))
 def ask_amount(call):
-    _, coin, leverage = call.data.split('_')
+    _, coin, side, leverage = call.data.split('_')
     bot.answer_callback_query(call.id)
     bot.delete_message(call.message.chat.id, call.message.message_id)
     
-    msg = bot.send_message(call.message.chat.id, f"📊 *{coin} | Плечо {leverage}x*\n\n💰 Введите сумму сделки (min $10, max ${get_user_balance(call.from_user.id):,.2f}):", parse_mode='Markdown')
+    msg = bot.send_message(call.message.chat.id, f"📊 *{coin} - {side.upper()} | Плечо {leverage}x*\n\n💰 Введите сумму сделки (min $10, max ${get_user_balance(call.from_user.id):,.2f}):", parse_mode='Markdown')
     
     temp_data[str(call.message.chat.id)] = {
         'coin': coin,
+        'side': side,
         'leverage': int(leverage),
         'msg_id': msg.message_id
     }
@@ -373,14 +449,15 @@ def show_balance(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('close_'))
 def close_trade(call):
     parts = call.data.split('_')
-    if len(parts) < 5:
+    if len(parts) < 6:
         bot.answer_callback_query(call.id, "Ошибка: неверные данные сделки")
         return
     
     coin = parts[1]
-    amount = float(parts[2])
-    leverage = int(parts[3])
-    entry_price = float(parts[4])
+    side = parts[2]
+    amount = float(parts[3])
+    leverage = int(parts[4])
+    entry_price = float(parts[5])
     user_id = call.from_user.id
     
     bot.answer_callback_query(call.id)
@@ -392,14 +469,14 @@ def close_trade(call):
     if not current_price:
         current_price = entry_price
     
-    pnl = calculate_pnl('long', amount, entry_price, current_price, leverage)
+    pnl = calculate_pnl(side, amount, entry_price, current_price, leverage)
     old_balance = get_user_balance(user_id)
     update_user_balance(user_id, amount + pnl)
     new_balance = get_user_balance(user_id)
     
     trade = {
         'symbol': coin,
-        'side': 'long',
+        'side': side,
         'amount': amount,
         'leverage': leverage,
         'entry_price': entry_price,
@@ -413,7 +490,7 @@ def close_trade(call):
     
     emoji = "🎉" if pnl > 0 else "😢" if pnl < 0 else "🤝"
     result_msg = f"{emoji} *СДЕЛКА ЗАКРЫТА* {emoji}\n\n"
-    result_msg += f"📊 {coin} | {leverage}x | ${amount:,.2f}\n"
+    result_msg += f"📊 {coin} | {side.upper()} | {leverage}x | ${amount:,.2f}\n"
     result_msg += f"💰 Результат: *{pnl:+.2f} USDT*\n\n"
     result_msg += f"📈 Баланс до: *${old_balance:,.2f}*\n"
     result_msg += f"📉 Баланс после: *${new_balance:,.2f}*\n\n"
@@ -437,6 +514,7 @@ def process_trade_amount(message):
         return
     
     coin = data.get('coin')
+    side = data.get('side')
     leverage = data.get('leverage')
     
     bot.delete_message(chat_id, data.get('msg_id'))
@@ -467,17 +545,20 @@ def process_trade_amount(message):
         del temp_data[str(chat_id)]
         return
     
-    side = 'long'
     position_size = amount * leverage
     liquidation_price = calculate_liquidation_price(side, current_price, leverage)
     
     update_user_balance(user_id, -amount)
     add_position(user_id, coin, side, amount, current_price, leverage)
     
-    trade_msg = f"📊 *АКТИВНАЯ СДЕЛКА*\n\n"
+    side_emoji = "📈" if side == 'long' else "📉"
+    side_text = "LONG (на рост)" if side == 'long' else "SHORT (на падение)"
+    
+    trade_msg = f"{side_emoji} *АКТИВНАЯ СДЕЛКА*\n\n"
     trade_msg += f"Монета: *{coin}*\n"
+    trade_msg += f"Направление: *{side_text}*\n"
     trade_msg += f"Плечо: *{leverage}x*\n"
-    trade_msg += f"Сумма: *${amount:,.2f}*\n"
+    trade_msg += f"Залог: *${amount:,.2f}*\n"
     trade_msg += f"Размер позиции: *${position_size:,.2f}*\n"
     trade_msg += f"Цена входа: *${current_price:.2f}*\n"
     trade_msg += f"Цена ликвидации: *${liquidation_price:.2f}*\n"
@@ -485,12 +566,13 @@ def process_trade_amount(message):
     trade_msg += f"📈 *Текущий P/L обновляется автоматически* 📉"
     
     markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("❌ ЗАКРЫТЬ СДЕЛКУ", callback_data=f"close_{coin}_{amount}_{leverage}_{current_price}"))
+    markup.add(telebot.types.InlineKeyboardButton("❌ ЗАКРЫТЬ СДЕЛКУ", callback_data=f"close_{coin}_{side}_{amount}_{leverage}_{current_price}"))
     
     sent_msg = bot.send_message(chat_id, trade_msg, reply_markup=markup, parse_mode='Markdown')
     
     active_trades[str(chat_id)] = {
         'coin': coin,
+        'side': side,
         'amount': amount,
         'leverage': leverage,
         'entry_price': current_price,
@@ -510,6 +592,7 @@ def start_pl_updater(chat_id):
                 break
             
             coin = trade['coin']
+            side = trade['side']
             amount = trade['amount']
             leverage = trade['leverage']
             entry_price = trade['entry_price']
@@ -517,20 +600,23 @@ def start_pl_updater(chat_id):
             
             current_price = get_current_price(f"{coin}USDT")
             if current_price:
-                pnl = calculate_pnl('long', amount, entry_price, current_price, leverage)
+                pnl = calculate_pnl(side, amount, entry_price, current_price, leverage)
                 emoji = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
                 
                 try:
                     position_size = amount * leverage
-                    liquidation_price = calculate_liquidation_price('long', entry_price, leverage)
+                    liquidation_price = calculate_liquidation_price(side, entry_price, leverage)
+                    side_emoji = "📈" if side == 'long' else "📉"
+                    side_text = "LONG (на рост)" if side == 'long' else "SHORT (на падение)"
                     
                     markup = telebot.types.InlineKeyboardMarkup()
-                    markup.add(telebot.types.InlineKeyboardButton("❌ ЗАКРЫТЬ СДЕЛКУ", callback_data=f"close_{coin}_{amount}_{leverage}_{entry_price}"))
+                    markup.add(telebot.types.InlineKeyboardButton("❌ ЗАКРЫТЬ СДЕЛКУ", callback_data=f"close_{coin}_{side}_{amount}_{leverage}_{entry_price}"))
                     
-                    new_msg = f"📊 *АКТИВНАЯ СДЕЛКА*\n\n"
+                    new_msg = f"{side_emoji} *АКТИВНАЯ СДЕЛКА*\n\n"
                     new_msg += f"Монета: *{coin}*\n"
+                    new_msg += f"Направление: *{side_text}*\n"
                     new_msg += f"Плечо: *{leverage}x*\n"
-                    new_msg += f"Сумма: *${amount:,.2f}*\n"
+                    new_msg += f"Залог: *${amount:,.2f}*\n"
                     new_msg += f"Размер позиции: *${position_size:,.2f}*\n"
                     new_msg += f"Цена входа: *${entry_price:.2f}*\n"
                     new_msg += f"Текущая цена: *${current_price:.2f}*\n"
@@ -549,5 +635,5 @@ def start_pl_updater(chat_id):
 # ==================== ЗАПУСК ====================
 set_commands()
 print("✅ Бот запущен!")
-print("🎮 Команды: /start, /quick, /balance, /history, /analyz, /check")
+print("🎮 Команды: /start, /quick, /balance, /backbalance, /history, /analyz, /check")
 bot.infinity_polling()
