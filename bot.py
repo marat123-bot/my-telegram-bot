@@ -142,6 +142,7 @@ def set_commands():
         telebot.types.BotCommand("quick", "🚀 Быстрая сделка"),
         telebot.types.BotCommand("balance", "💰 Мой баланс"),
         telebot.types.BotCommand("history", "📜 История сделок"),
+        telebot.types.BotCommand("analyz", "🔮 Прогноз на 12 часов"),
         telebot.types.BotCommand("check", "📊 Курсы валют и крипты")
     ]
     bot.set_my_commands(commands)
@@ -165,10 +166,12 @@ def start_cmd(message):
 
 ⚡ *Доступные плечи:* 1x, 10x, 25x, 50x, 75x, 100x, 250x
 
-📚 *Быстрая торговля:*
+📚 *Команды:*
 • `/quick` - открыть сделку с кнопками
 • `/balance` - проверить баланс
 • `/history` - история сделок
+• `/analyz` - прогноз на 12 часов
+• `/check` - курсы валют и криптовалют
 
 🎓 *Совет:* Начните с маленьких сумм!"""
     
@@ -245,6 +248,36 @@ def history_cmd(message):
         msg += "\n"
     
     bot.reply_to(message, msg, parse_mode='Markdown')
+
+@bot.message_handler(commands=['analyz'])
+def analyz_cmd(message):
+    now = get_now().strftime('%d.%m.%Y %H:%M')
+    symbols = {'BTCUSDT': 'Bitcoin', 'ETHUSDT': 'Ethereum', 'TONUSDT': 'Toncoin', 'SOLUSDT': 'Solana'}
+    
+    result = f"🔮 ПРОГНОЗ НА 12 ЧАСОВ\n🕐 {now}\n\n"
+    
+    for symbol, name in symbols.items():
+        data = get_mexc_data(symbol)
+        if data:
+            position = (data['price'] - data['low']) / (data['high'] - data['low']) if data['high'] != data['low'] else 0.5
+            if position > 0.7:
+                forecast = "Вероятен рост 📈"
+            elif position < 0.3:
+                forecast = "Вероятно снижение 📉"
+            else:
+                forecast = "Боковое движение ↔️"
+            
+            result += f"{name}\n"
+            result += f"Текущая: ${data['price']:,.2f}\n"
+            result += f"Мин (24ч): ${data['low']:,.2f}\n"
+            result += f"Макс (24ч): ${data['high']:,.2f}\n"
+            result += f"Изменение 24ч: {data['change']:+.2f}%\n"
+            result += f"Прогноз: {forecast}\n\n"
+        else:
+            result += f"{name}: ошибка получения данных\n\n"
+    
+    result += "⚠️ Прогноз основан на техническом анализе и не является гарантией."
+    bot.reply_to(message, result, parse_mode='Markdown')
 
 @bot.message_handler(commands=['check'])
 def check_cmd(message):
@@ -516,5 +549,5 @@ def start_pl_updater(chat_id):
 # ==================== ЗАПУСК ====================
 set_commands()
 print("✅ Бот запущен!")
-print("🎮 Доступные команды: /start, /quick, /balance, /history, /check")
+print("🎮 Команды: /start, /quick, /balance, /history, /analyz, /check")
 bot.infinity_polling()
