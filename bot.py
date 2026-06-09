@@ -2,14 +2,21 @@ import telebot
 import requests
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 TOKEN = '8806120226:AAHePHRmhf_-k6UVkd3TocXrOeyyvaUCX1U'
 CHAT_ID = 1982505441
 
 bot = telebot.TeleBot(TOKEN)
 
-# УДАЛЯЕМ WEBHOOK - ЭТО РЕШАЕТ ПРОБЛЕМУ 409
+# Устанавливаем часовой пояс Минск/Москва (UTC+3)
+MSK = timezone(timedelta(hours=3))
+
+def get_now():
+    """Возвращает текущее время в часовом поясе UTC+3"""
+    return datetime.now(MSK)
+
+# Удаляем webhook
 try:
     bot.remove_webhook()
     print("✅ Webhook удалён")
@@ -79,7 +86,7 @@ def get_forecast(current, high, low):
         return "Неопределённость"
 
 def get_analyz_report():
-    now = datetime.now().strftime('%d.%m.%Y %H:%M')
+    now = get_now().strftime('%d.%m.%Y %H:%M')
     symbols = {'BTCUSDT': 'Bitcoin', 'ETHUSDT': 'Ethereum', 'TONUSDT': 'Toncoin', 'SOLUSDT': 'Solana'}
     result = f"🔮 ПРОГНОЗ НА 12 ЧАСОВ\n🕐 {now}\n\n"
     for symbol, name in symbols.items():
@@ -93,7 +100,7 @@ def get_analyz_report():
     return result
 
 def get_full_daily_report():
-    now = datetime.now().strftime('%d.%m.%Y %H:%M')
+    now = get_now().strftime('%d.%m.%Y %H:%M')
     symbols = {'BTCUSDT': 'Bitcoin', 'ETHUSDT': 'Ethereum', 'TONUSDT': 'Toncoin', 'SOLUSDT': 'Solana'}
     result = f"📊 ЕЖЕДНЕВНАЯ СВОДКА\n🕐 {now}\n\n{get_currency()}\n\n🪙 Криптовалюты (к USD):\n"
     for symbol, name in symbols.items():
@@ -114,7 +121,7 @@ def get_full_daily_report():
     return result
 
 def get_hourly_crypto():
-    now = datetime.now().strftime('%d.%m.%Y %H:%M')
+    now = get_now().strftime('%d.%m.%Y %H:%M')
     symbols = {'BTCUSDT': 'Bitcoin', 'ETHUSDT': 'Ethereum', 'TONUSDT': 'Toncoin', 'SOLUSDT': 'Solana'}
     result = f"🕐 {now}\n\n💰 ЕЖЕЧАСНАЯ СВОДКА КРИПТОВАЛЮТ\n\n"
     for symbol, name in symbols.items():
@@ -138,7 +145,7 @@ def check_price_alerts():
                 change_percent = ((current_price - last_price) / last_price) * 100
                 if abs(change_percent) >= 3:
                     direction = "РЕЗКИЙ РОСТ 🚀" if change_percent > 0 else "РЕЗКОЕ ПАДЕНИЕ 📉"
-                    alerts.append(f"{direction} {name}\nИзменение: {change_percent:+.2f}%\nЦена была: ${last_price:,.2f}\nЦена стала: ${current_price:,.2f}")
+                    alerts.append(f"{direction} {name}\nИзменение: {change_percent:+.2f}%\nЦена была: ${last_price:,.2f}\nЦена стала: ${current_price:,.2f}\n🕐 {get_now().strftime('%H:%M:%S')}")
             last_prices[name] = current_price
     return alerts
 
@@ -147,7 +154,7 @@ def send_notifications():
     last_hourly = None
     last_alert_check = None
     while True:
-        now = datetime.now()
+        now = get_now()
         current_time_str = now.strftime('%H:%M')
         if current_time_str in ['00:00', '12:00']:
             if last_daily != current_time_str:
@@ -180,7 +187,7 @@ def send_notifications():
 
 @bot.message_handler(commands=['start', 'check'])
 def check_cmd(message):
-    now = datetime.now().strftime('%d.%m.%Y %H:%M')
+    now = get_now().strftime('%d.%m.%Y %H:%M')
     symbols = {'BTCUSDT': 'Bitcoin', 'ETHUSDT': 'Ethereum', 'TONUSDT': 'Toncoin', 'SOLUSDT': 'Solana'}
     crypto_msg = "🪙 Криптовалюты (к USD):\n"
     for symbol, name in symbols.items():
@@ -211,7 +218,7 @@ def info_cmd(message):
 • /info - Информация о боте
 
 ⏰ *Автоуведомления:*
-• 00:00 и 12:00 - полная сводка
+• 00:00 и 12:00 - полная сводка (по Минску)
 • Каждый час - сводка криптовалют
 • При изменении >3% - оповещение
 
@@ -220,5 +227,5 @@ def info_cmd(message):
 
 set_commands()
 threading.Thread(target=send_notifications, daemon=True).start()
-print("✅ Бот запущен!")
+print("✅ Бот запущен! Часовой пояс: UTC+3 (Минск/Москва)")
 bot.infinity_polling()
