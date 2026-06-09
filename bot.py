@@ -5,35 +5,26 @@ import time
 import os
 from datetime import datetime, timedelta, timezone
 
-# Токен берем из переменной окружения (безопасно!)
 TOKEN = os.environ.get('BOT_TOKEN')
 CHAT_ID = 1982505441
 
 if not TOKEN:
-    print("❌ Ошибка: BOT_TOKEN не установлен в переменных окружения!")
+    print("❌ Ошибка: BOT_TOKEN не установлен")
     exit(1)
 
 bot = telebot.TeleBot(TOKEN)
-
-# Устанавливаем часовой пояс UTC+3
 MSK = timezone(timedelta(hours=3))
 
 def get_now():
     return datetime.now(MSK)
 
-# Удаляем webhook
 try:
     bot.remove_webhook()
     print("✅ Webhook удалён")
 except:
     pass
 
-last_prices = {
-    'Bitcoin': None,
-    'Ethereum': None,
-    'Toncoin': None,
-    'Solana': None
-}
+last_prices = {'Bitcoin': None, 'Ethereum': None, 'Toncoin': None, 'Solana': None}
 
 def set_commands():
     commands = [
@@ -43,7 +34,6 @@ def set_commands():
         telebot.types.BotCommand("info", "ℹ️ Информация о боте")
     ]
     bot.set_my_commands(commands)
-    print("✅ Меню команд установлено")
 
 def get_mexc_data(symbol):
     try:
@@ -150,7 +140,7 @@ def check_price_alerts():
                 change_percent = ((current_price - last_price) / last_price) * 100
                 if abs(change_percent) >= 3:
                     direction = "РЕЗКИЙ РОСТ 🚀" if change_percent > 0 else "РЕЗКОЕ ПАДЕНИЕ 📉"
-                    alerts.append(f"{direction} {name}\nИзменение: {change_percent:+.2f}%\nЦена была: ${last_price:,.2f}\nЦена стала: ${current_price:,.2f}\n🕐 {get_now().strftime('%H:%M:%S')}")
+                    alerts.append(f"{direction} {name}\nИзменение: {change_percent:+.2f}%\nЦена была: ${last_price:,.2f}\nЦена стала: ${current_price:,.2f}")
             last_prices[name] = current_price
     return alerts
 
@@ -167,26 +157,23 @@ def send_notifications():
                 try:
                     bot.send_message(CHAT_ID, report)
                     last_daily = current_time_str
-                    print(f"📨 Отправлена ежедневная сводка в {current_time_str}")
-                except Exception as e:
-                    print(f"Ошибка: {e}")
+                except:
+                    pass
         if current_time_str.endswith(':00'):
             if last_hourly != current_time_str:
                 hourly = get_hourly_crypto()
                 try:
                     bot.send_message(CHAT_ID, hourly)
                     last_hourly = current_time_str
-                    print(f"📨 Отправлена ежечасная сводка в {current_time_str}")
-                except Exception as e:
-                    print(f"Ошибка: {e}")
+                except:
+                    pass
         if last_alert_check is None or (datetime.now() - last_alert_check).seconds >= 120:
             alerts = check_price_alerts()
             for alert in alerts:
                 try:
                     bot.send_message(CHAT_ID, alert)
-                    print(f"⚠️ Резкое изменение")
-                except Exception as e:
-                    print(f"Ошибка: {e}")
+                except:
+                    pass
             last_alert_check = datetime.now()
         time.sleep(30)
 
@@ -232,5 +219,5 @@ def info_cmd(message):
 
 set_commands()
 threading.Thread(target=send_notifications, daemon=True).start()
-print(f"✅ Бот {bot.get_me().username} запущен!")
+print("✅ Бот запущен!")
 bot.infinity_polling()
