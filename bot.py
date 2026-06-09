@@ -2,18 +2,23 @@ import telebot
 import requests
 import threading
 import time
+import os
 from datetime import datetime, timedelta, timezone
 
-TOKEN = '8806120226:AAHePHRmhf_-k6UVkd3TocXrOeyyvaUCX1U'
+# Токен берем из переменной окружения (безопасно!)
+TOKEN = os.environ.get('BOT_TOKEN')
 CHAT_ID = 1982505441
+
+if not TOKEN:
+    print("❌ Ошибка: BOT_TOKEN не установлен в переменных окружения!")
+    exit(1)
 
 bot = telebot.TeleBot(TOKEN)
 
-# Устанавливаем часовой пояс Минск/Москва (UTC+3)
+# Устанавливаем часовой пояс UTC+3
 MSK = timezone(timedelta(hours=3))
 
 def get_now():
-    """Возвращает текущее время в часовом поясе UTC+3"""
     return datetime.now(MSK)
 
 # Удаляем webhook
@@ -218,7 +223,7 @@ def info_cmd(message):
 • /info - Информация о боте
 
 ⏰ *Автоуведомления:*
-• 00:00 и 12:00 - полная сводка (по Минску)
+• 00:00 и 12:00 - полная сводка
 • Каждый час - сводка криптовалют
 • При изменении >3% - оповещение
 
@@ -227,5 +232,5 @@ def info_cmd(message):
 
 set_commands()
 threading.Thread(target=send_notifications, daemon=True).start()
-print("✅ Бот запущен! Часовой пояс: UTC+3 (Минск/Москва)")
+print(f"✅ Бот {bot.get_me().username} запущен!")
 bot.infinity_polling()
